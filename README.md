@@ -1,6 +1,28 @@
 # Not-X-But-Y Benchmark
 
-A benchmark for measuring "AI slop" patterns in language model outputs, specifically the overuse of phrases like "not X, but Y" that are characteristic of artificial writing.
+A benchmark measuring a specific kind of slop that LLMs have been converging on: "Not X, but Y" or "It's not just X, it's Y" and similar constructions. These are not bad writing in themselves, but become perceived as repetitive or distinctly AI-generated when they appear far more frequently than in human writing. Some examples taken from AI writing:
+
+## Quoted examples
+
+> "The silence after Elan snatched the notebook wasn't empty. It was thick."
+
+> "The Sole of Destiny isn't a weapon; it's a responsibility."
+
+> "This is not a local anomaly. It's global."
+
+> "It's not just performance art. It's… manipulation."
+
+> "Shoes don't remember who ran first. They remember who limped last."
+
+> "It is not language as I know it; it is a pattern of resonance that my brain is forced to interpret."
+
+> "For the first time in years, the silence doesn't feel empty. It feels shared."
+
+> "I'll teach kids that power isn't about the shoes you wear, but the choices you make."
+
+> "The translation is not merely semantic. It's ethical architecture."
+
+This evaluated model is prompted to write 1000 works to 300 different writing prompts. The text is then passed through a number of Regex expressions to capture the different ways "Not-x-but-y" phrases manifest. The final score is the frequency of these phrases in the text, per 1,000 characters.
 
 ## Quickstart
 
@@ -24,17 +46,6 @@ python create_results_chart.py
 ```
 
 ---
-
-## What This Benchmark Measures
-
-This benchmark detects overuse of rhetorical contrast patterns that are common in AI-generated text but rare in human writing. These patterns include:
-
-- **"Not X, but Y"** constructions: "It's not a bug, but a feature"
-- **Contrasts with dashes**: "He wasn't angry—he was furious"
-- **Gerund fragments**: "Not running, walking carefully"
-- **35+ additional patterns** identified through linguistic analysis
-
-The benchmark computes a **slop rate**: hits per 1,000 characters. Lower is better.
 
 ### Human Baseline
 
@@ -158,9 +169,6 @@ Recalculate the human baseline from the included text samples:
 ```bash
 # Basic
 python human_baseline.py
-
-# With per-file breakdown
-python human_baseline.py -v
 ```
 
 ### Generate Charts
@@ -178,58 +186,6 @@ python create_results_chart.py \
   --results-dir my-results/ \
   --output my-leaderboard.png
 ```
-
----
-
-## Project Structure
-
-```
-.
-├── main.py                    # Main evaluation runner
-├── src/
-│   ├── api.py                # API client (OpenAI/Anthropic/OpenRouter)
-│   ├── scorer.py             # Pattern matching and scoring
-│   ├── regexes_v3.py         # Stage 1 surface patterns (10)
-│   ├── regexes_pos.py        # Stage 2 POS patterns (35)
-│   ├── pos_tagger.py         # spaCy integration
-│   └── io_utils.py           # Thread-safe JSON updates
-├── human_baseline.py         # Compute baseline from books
-├── create_results_chart.py   # Generate leaderboard
-├── recalc.py                 # Recalculate existing scores
-├── prompts.json              # 300 creative writing prompts
-├── human_writing_samples/    # 82 books for baseline (~53MB)
-└── results/                  # Evaluation results (JSON)
-```
-
----
-
-## Scoring Validation
-
-The scorer has strict validation to prevent silent failures:
-
-- **45 patterns required**: 10 Stage 1 + 35 Stage 2
-- **Module-level validation**: Runs on import
-- **No silent fallbacks**: Missing regexes cause immediate errors
-- **Pattern verification**: Ensures all are compiled regex objects
-
-If imports fail, you'll see:
-```
-ImportError: Failed to load Stage1 regexes from regexes_v3: ...
-This is a critical error - scoring will be incorrect without proper regexes.
-```
-
----
-
-## Features
-
-- **Parallel generation** with configurable workers
-- **Automatic retry logic** with exponential backoff
-- **Progressive results** - saved after each completion
-- **Thread-safe writes** - safe to run multiple instances
-- **Resume support** - rerun with same args to continue
-- **Multiple API types** - OpenAI, Anthropic, OpenRouter
-- **Cross-sentence matching** - handles multi-sentence patterns
-- **Sentence-level deduplication** - prevents double-counting
 
 ---
 
@@ -253,63 +209,6 @@ Options:
   --retry-delay SECS      Delay between retries (default: 5.0)
 ```
 
-### Human Baseline
-```bash
-python human_baseline.py [options]
-
-Options:
-  --samples-dir DIR       Directory with .txt files (default: human_writing_samples/)
-  -v, --verbose          Show per-file statistics
-```
-
-### Chart Generation
-```bash
-python create_results_chart.py [options]
-
-Options:
-  --results-dir DIR       Directory with results JSON (default: results/)
-  --output FILE          Output image path (default: leaderboard.png)
-```
-
----
-
-## Environment Variables
-
-Create a `.env` file or set environment variables:
-
-```bash
-BASE_URL=https://api.anthropic.com/v1/messages
-API_KEY=sk-ant-api03-...
-```
-
-Both `BASE_URL` and `API_KEY` are required.
-
----
-
-## Example Workflow
-
-```bash
-# 1. Test a model quickly (10 prompts for debugging)
-python main.py claude-sonnet-4-20250514 \
-  --results results/claude-test.json \
-  --n-prompts 10
-
-# 2. Full evaluation (300 prompts)
-python main.py claude-sonnet-4-20250514 \
-  --results results/claude-full.json \
-  --n-prompts 300 \
-  --workers 16
-
-# 3. Evaluate multiple models
-for model in "gpt-4o" "claude-sonnet-4-20250514" "gemini-2.5-flash"; do
-  python main.py $model --results results/${model}.json
-done
-
-# 4. Generate leaderboard
-python create_results_chart.py
-open leaderboard.png
-```
-
 ---
 
 ## Citation
@@ -329,4 +228,4 @@ If you use this benchmark, please cite:
 
 ## License
 
-MIT License - see LICENSE file for details
+MIT License

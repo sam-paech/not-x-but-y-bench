@@ -111,13 +111,32 @@ def create_leaderboard(scores: list, output_path: Path) -> None:
             color='lightgray'
         )
 
-    ax.set_title(
-        '"Not x, but y" Slop Leaderboard\n'
-        r'$\it{phrases\ per\ 1{,}000\ characters}$',
-        fontsize=16,
-        fontweight='bold',
-        pad=10
+    # Title
+    ax.set_title('Slop Leaderboard', fontsize=18, fontweight='bold', pad=14, loc='left')
+
+    # Subtitle
+    # Title on the axes
+    ax.set_title('Slop Leaderboard', fontsize=18, fontweight='bold', pad=6, loc='left')
+
+    # Subtitle on the figure, placed *below* the title
+    # Main title a bit higher
+    ax.set_title('Slop Leaderboard', fontsize=18, fontweight='bold', pad=22, loc='left')
+
+    # Subtitle just above the axes top, safely below the title
+    subtitle = 'Not-X-but-Y phrases per 1,000 characters'
+    ax.text(
+        0.0, 1.004, subtitle,             # was 1.02; move down to sit under the title
+        transform=ax.transAxes,
+        ha='left', va='bottom',
+        fontsize=11, fontstyle='italic',
+        color='#8b949e', alpha=0.95
     )
+
+    # Push the plot down to add space UNDER the subtitle
+    plt.subplots_adjust(top=0.80)         # more headroom; increase to 0.78 if still tight
+
+
+
 
     ax.set_xlabel('Not-X-but-Y phrases per 1,000 Characters', fontsize=10)
     ax.set_ylabel('')
