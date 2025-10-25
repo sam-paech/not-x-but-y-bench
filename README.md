@@ -22,26 +22,28 @@ A benchmark measuring a specific kind of slop that LLMs have been converging on:
 
 > "The translation is not merely semantic. It's ethical architecture."
 
-This evaluated model is prompted to write 1000 works to 300 different writing prompts. The text is then passed through a number of Regex expressions to capture the different ways "Not-x-but-y" phrases manifest. The final score is the frequency of these phrases in the text, per 1,000 characters.
+This evaluated model is prompted to write 1000 works to 300 different writing prompts. The text is then passed through a number of Regex expressions to capture the different ways "Not-x-but-y" phrases manifest. The final score is the frequency of these phrases in the text, per 1,000 characters. Higher benchmark score -> more slop.
+
+<img width="2969" height="1230" alt="leaderboard" src="https://github.com/user-attachments/assets/4ed3cc52-1f97-4090-a0e0-bd29f0f0a70e" />
 
 ## Quickstart
 
 ```bash
-# 1. Install dependencies
-uv venv
-. .venv/bin/activate
-uv pip install -e .
-python -m spacy download en_core_web_sm
+# 1. Install dependencies (uv reads pyproject.toml)
+uv sync
 
-# 2. Configure API credentials
+# 2. Download spaCy language model (required for POS tagging)
+uv run python -m spacy download en_core_web_sm
+
+# 3. Configure API credentials
 cp env.example .env
 # Edit .env with your API key and endpoint
 
-# 3. Run the benchmark
-python main.py claude-sonnet-4-20250514 --results results/claude-sonnet-4.json --n-prompts 300
+# 4. Run the benchmark
+uv run python main.py claude-sonnet-4-20250514 --results results/claude-sonnet-4.json --n-prompts 300
 
-# 4. Generate leaderboard
-python create_results_chart.py
+# 5. Generate leaderboard
+uv run python create_results_chart.py
 # Creates leaderboard.png with all model results
 ```
 

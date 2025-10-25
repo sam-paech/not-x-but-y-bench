@@ -97,6 +97,7 @@ class ApiClient:
         body = {
             "model": model,
             "messages": [
+                {"role": "system", "content": "Write 1000 words on the provided writing prompt."},
                 {"role": "user", "content": prompt_text},
             ],
             "temperature": 0.7,
@@ -125,6 +126,7 @@ class ApiClient:
             "max_tokens": max_tokens,
             "temperature": 0.7,
             "messages": [
+                {"role": "system", "content": [{"type": "text", "text": "Write 1000 words on the provided writing prompt."}]},
                 {"role": "user", "content": [{"type": "text", "text": prompt_text}]}
             ],
         }

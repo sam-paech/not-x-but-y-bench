@@ -1,6 +1,6 @@
 # pyproject.toml
 [project]
-name = "notx-eval"
+name = "not-x-but-y-bench"
 version = "0.1.0"
 description = "Parallel longform generation + not-x-but-y slop evaluation"
 requires-python = ">=3.11"
@@ -14,6 +14,13 @@ dependencies = [
   "tqdm>=4.66.0",
   # POS tagging and sentencizer. If you won't use Stage-2, you can omit spaCy.
   "spacy>=3.7.0",
+  # Chart generation
+  "pandas>=2.0.0",
+  "seaborn>=0.12.0",
+  "numpy>=1.24.0",
+  "matplotlib>=3.7.0",
+  # Required for spaCy model downloads
+  "pip>=24.0",
 ]
 
 [project.optional-dependencies]
@@ -22,14 +29,14 @@ dev = [
   "pytest>=8.2.0",
 ]
 
-[project.scripts]
-notx-eval = "main:main"
-
 [tool.ruff]
 line-length = 100
 target-version = "py311"
 select = ["E","F","I","UP"]
 fix = true
+
+[tool.hatch.build.targets.wheel]
+packages = ["src"]
 
 [build-system]
 requires = ["hatchling"]

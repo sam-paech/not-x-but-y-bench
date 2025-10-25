@@ -1,3 +1,5 @@
 .env
 __pycache__
 human_writing_samples
+.venv
+.claude

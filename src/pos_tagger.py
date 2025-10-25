@@ -6,8 +6,12 @@ from functools import lru_cache
 try:
     _NLP = spacy.load("en_core_web_sm", disable=["ner", "lemmatizer", "textcat"])
 except OSError:
-    print("Please install spaCy model: python -m spacy download en_core_web_sm")
-    _NLP = None
+    raise RuntimeError(
+        "spaCy model 'en_core_web_sm' is not installed.\n"
+        "This model is REQUIRED for Stage-2 POS tagging.\n\n"
+        "To install it, run:\n"
+        "  uv run python -m spacy download en_core_web_sm\n"
+    )
 
 if _NLP is not None and "senter" not in _NLP.pipe_names and "sentencizer" not in _NLP.pipe_names:
     _NLP.add_pipe("sentencizer")

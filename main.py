@@ -6,6 +6,7 @@ import argparse
 import json
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from multiprocessing import Pool
 from datetime import datetime, timezone
 
 from src.config import load_env, get_api_config
@@ -32,6 +33,53 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _score_sample(sample_dict):
+    """
+    Worker function for multiprocessing Pool.
+    Takes a sample dict with 'output' key and returns it with scoring added.
+    """
+    text = sample_dict.get("output", "")
+    s = score_text(text)
+    sample_dict["chars"] = s["chars"]
+    sample_dict["hits"] = s["hits"]
+    sample_dict["rate_per_1k"] = s["rate_per_1k"]
+    return sample_dict
+
+
+def _get_completed_prompts(results_path: Path, model_id: str) -> dict:
+    """
+    Load existing results and return a dict of completed samples by prompt_index.
+    Returns dict with:
+      - 'generated': set of prompt_indices that have been generated (output exists)
+      - 'samples': dict mapping prompt_index -> sample
+    """
+    if not results_path.exists():
+        return {'generated': set(), 'samples': {}}
+
+    try:
+        data = json.loads(results_path.read_text(encoding="utf-8"))
+        model_data = data.get(model_id, {})
+        samples = model_data.get("samples", [])
+
+        generated = set()
+        samples_by_idx = {}
+
+        for sample in samples:
+            idx = sample.get("prompt_index")
+            if idx is None:
+                continue
+
+            samples_by_idx[idx] = sample
+
+            # Has output and no error = generated
+            if sample.get("output") and not sample.get("error"):
+                generated.add(idx)
+
+        return {'generated': generated, 'samples': samples_by_idx}
+    except Exception:
+        return {'generated': set(), 'samples': {}}
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description="Run longform eval and compute not-x-but-y rate.")
     ap.add_argument("model", type=str, help="Model ID to query (e.g., gpt-4o, meta-llama/... etc.)")
@@ -41,8 +89,9 @@ def main() -> None:
     ap.add_argument("--timeout", type=float, default=480.0, help="HTTP timeout seconds")
     ap.add_argument("--max-tokens", type=int, default=8096, help="Max tokens per generation")
     ap.add_argument("--n-prompts", type=int, default=300, help="Number of prompts to use")
-    ap.add_argument("--max-retries", type=int, default=5, help="Max retries per request")
+    ap.add_argument("--max-retries", type=int, default=3, help="Max retries per request")
     ap.add_argument("--retry-delay", type=float, default=5.0, help="Delay between retries in seconds")
+    ap.add_argument("--scoring-workers", type=int, default=12, help="Number of parallel processes for scoring (default: 12)")
     args = ap.parse_args()
 
     load_env()
@@ -67,6 +116,16 @@ def main() -> None:
         retry_delay=args.retry_delay,
     )
 
+    # Check for existing results to resume from
+    completed = _get_completed_prompts(results_path, model_id)
+    already_generated = completed['generated']
+    existing_samples = completed['samples']
+
+    # Report resume status
+    if already_generated:
+        print(f"Found existing results: {len(already_generated)} already generated")
+        print(f"Resuming from checkpoint (will re-score all samples)...")
+
     # Write model header if missing and mark start time
     ensure_model_header(
         results_path=results_path,
@@ -82,7 +141,11 @@ def main() -> None:
         started_at=_now_iso(),
     )
 
-    def _work(idx_prompt_tuple):
+    # Phase 1: Generate text outputs (threaded for I/O concurrency)
+    # Skip prompts that are already generated
+    prompts_to_generate = [(i, p) for i, p in enumerate(prompts) if i not in already_generated]
+
+    def _generate(idx_prompt_tuple):
         idx, prompt = idx_prompt_tuple
         try:
             text = client.generate(
@@ -90,43 +153,71 @@ def main() -> None:
                 prompt_text=_prompt_text(prompt),
                 max_tokens=args.max_tokens,
             )
-            s = score_text(text)
             sample = {
                 "prompt_index": idx,
                 "prompt": prompt,
                 "output": text,
-                "chars": s["chars"],
-                "hits": s["hits"],
-                "rate_per_1k": s["rate_per_1k"],
+                # Don't set chars/hits/rate_per_1k here - they'll be added in Phase 2
             }
-            # Progressive, atomic, thread-safe update
-            atomic_update_model_results(results_path, model_id, sample)
-            return sample
         except Exception as e:
-            # Record the error for this specific prompt
             sample = {
                 "prompt_index": idx,
                 "prompt": prompt,
                 "output": "",
-                "chars": 0,
-                "hits": 0,
-                "rate_per_1k": 0.0,
                 "error": str(e),
+                # Don't set chars/hits/rate_per_1k for errors either
             }
-            atomic_update_model_results(results_path, model_id, sample)
-            return sample
 
-    futures = []
-    with ThreadPoolExecutor(max_workers=args.workers) as ex:
-        for i, p in enumerate(prompts):
-            futures.append(ex.submit(_work, (i, p)))
+        # Progressive, atomic, thread-safe save
+        atomic_update_model_results(results_path, model_id, sample)
+        return sample
 
-        total_chars = 0
-        total_hits = 0
-        for fut in tqdm(as_completed(futures), total=len(futures), desc="Generating + Scoring"):
-            res = fut.result()
-            total_chars += res["chars"]
-            total_hits += res["hits"]
+    if prompts_to_generate:
+        print(f"Phase 1: Generating {len(prompts_to_generate)} outputs with {args.workers} worker threads...")
+        print(f"  (Skipping {len(already_generated)} already generated)")
+        generated_samples = []
+        futures = []
+        with ThreadPoolExecutor(max_workers=args.workers) as ex:
+            for idx_prompt in prompts_to_generate:
+                futures.append(ex.submit(_generate, idx_prompt))
+
+            for fut in tqdm(as_completed(futures), total=len(futures), desc="Generating"):
+                generated_samples.append(fut.result())
+    else:
+        print(f"Phase 1: All {len(prompts)} prompts already generated, skipping generation phase")
+        generated_samples = []
+
+    # Combine newly generated with existing samples
+    all_samples_dict = existing_samples.copy()
+    for sample in generated_samples:
+        all_samples_dict[sample['prompt_index']] = sample
+
+    # Convert to list for Phase 2, sorted by prompt_index
+    all_samples = [all_samples_dict[i] for i in sorted(all_samples_dict.keys())]
+
+    # Phase 2: Score all outputs (multiprocessing for CPU-bound POS tagging)
+    # Always score all samples to ensure consistency and allow for scoring updates
+    if all_samples:
+        print(f"\nPhase 2: Scoring {len(all_samples)} outputs with {args.scoring_workers} worker processes...")
+
+        with Pool(processes=args.scoring_workers) as pool:
+            for scored_sample in tqdm(
+                pool.imap(_score_sample, all_samples),
+                total=len(all_samples),
+                desc="Scoring"
+            ):
+                # Progressive, atomic save with updated scores
+                atomic_update_model_results(results_path, model_id, scored_sample)
+    else:
+        print(f"\nPhase 2: No samples to score")
+
+    # Calculate final totals from all samples (including already-scored ones)
+    total_chars = 0
+    total_hits = 0
+    for idx in sorted(all_samples_dict.keys()):
+        sample = all_samples_dict[idx]
+        total_chars += sample.get("chars", 0)
+        total_hits += sample.get("hits", 0)
 
     # write completion timestamp and final summary
     atomic_update_model_results(
