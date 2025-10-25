@@ -38,9 +38,11 @@ def main() -> None:
     ap.add_argument("--prompts", type=str, default="prompts.json", help="Path to prompts.json (list[str])")
     ap.add_argument("--results", type=str, default="results.json", help="Path to results JSON (append-only by model)")
     ap.add_argument("--workers", type=int, default=8, help="Number of parallel threads")
-    ap.add_argument("--timeout", type=float, default=120.0, help="HTTP timeout seconds")
-    ap.add_argument("--max-tokens", type=int, default=2048, help="Max tokens per generation")
+    ap.add_argument("--timeout", type=float, default=480.0, help="HTTP timeout seconds")
+    ap.add_argument("--max-tokens", type=int, default=8096, help="Max tokens per generation")
     ap.add_argument("--n-prompts", type=int, default=300, help="Number of prompts to use")
+    ap.add_argument("--max-retries", type=int, default=5, help="Max retries per request")
+    ap.add_argument("--retry-delay", type=float, default=5.0, help="Delay between retries in seconds")
     args = ap.parse_args()
 
     load_env()
@@ -57,7 +59,13 @@ def main() -> None:
     # Limit to n_prompts
     prompts = prompts[:args.n_prompts]
 
-    client = ApiClient(base_url=base_url, api_key=api_key, timeout=args.timeout)
+    client = ApiClient(
+        base_url=base_url,
+        api_key=api_key,
+        timeout=args.timeout,
+        max_retries=args.max_retries,
+        retry_delay=args.retry_delay,
+    )
 
     # Write model header if missing and mark start time
     ensure_model_header(
@@ -76,23 +84,37 @@ def main() -> None:
 
     def _work(idx_prompt_tuple):
         idx, prompt = idx_prompt_tuple
-        text = client.generate(
-            model=model_id,
-            prompt_text=_prompt_text(prompt),
-            max_tokens=args.max_tokens,
-        )
-        s = score_text(text)
-        sample = {
-            "prompt_index": idx,
-            "prompt": prompt,
-            "output": text,
-            "chars": s["chars"],
-            "hits": s["hits"],
-            "rate_per_1k": s["rate_per_1k"],
-        }
-        # Progressive, atomic, thread-safe update
-        atomic_update_model_results(results_path, model_id, sample)
-        return sample
+        try:
+            text = client.generate(
+                model=model_id,
+                prompt_text=_prompt_text(prompt),
+                max_tokens=args.max_tokens,
+            )
+            s = score_text(text)
+            sample = {
+                "prompt_index": idx,
+                "prompt": prompt,
+                "output": text,
+                "chars": s["chars"],
+                "hits": s["hits"],
+                "rate_per_1k": s["rate_per_1k"],
+            }
+            # Progressive, atomic, thread-safe update
+            atomic_update_model_results(results_path, model_id, sample)
+            return sample
+        except Exception as e:
+            # Record the error for this specific prompt
+            sample = {
+                "prompt_index": idx,
+                "prompt": prompt,
+                "output": "",
+                "chars": 0,
+                "hits": 0,
+                "rate_per_1k": 0.0,
+                "error": str(e),
+            }
+            atomic_update_model_results(results_path, model_id, sample)
+            return sample
 
     futures = []
     with ThreadPoolExecutor(max_workers=args.workers) as ex:
@@ -102,22 +124,9 @@ def main() -> None:
         total_chars = 0
         total_hits = 0
         for fut in tqdm(as_completed(futures), total=len(futures), desc="Generating + Scoring"):
-            try:
-                res = fut.result()
-                total_chars += res["chars"]
-                total_hits += res["hits"]
-            except Exception as e:
-                # record the error as a sample too
-                sample = {
-                    "prompt_index": None,
-                    "prompt": None,
-                    "output": "",
-                    "chars": 0,
-                    "hits": 0,
-                    "rate_per_1k": 0.0,
-                    "error": str(e),
-                }
-                atomic_update_model_results(results_path, model_id, sample)
+            res = fut.result()
+            total_chars += res["chars"]
+            total_hits += res["hits"]
 
     # write completion timestamp and final summary
     atomic_update_model_results(

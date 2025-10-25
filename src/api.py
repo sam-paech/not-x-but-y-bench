@@ -16,10 +16,12 @@ class ApiClient:
     Detection is based on base_url.
     """
 
-    def __init__(self, base_url: str, api_key: str, timeout: float = 120.0):
+    def __init__(self, base_url: str, api_key: str, timeout: float = 120.0, max_retries: int = 5, retry_delay: float = 5.0):
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key
         self.timeout = timeout
+        self.max_retries = max_retries
+        self.retry_delay = retry_delay
         self.kind = self._detect_kind(self.base_url)
         self._local = threading.local()
 
@@ -71,13 +73,23 @@ class ApiClient:
         """
         Always temperature=0.7.
         Use min_p=0.1 when supported (OpenRouter).
+        Retries on failure with configurable retry count and delay.
         """
-        if self.kind == "anthropic":
-            return self._anthropic_generate(model, prompt_text, max_tokens=max_tokens)
-        return self._openai_compat_generate(model, prompt_text, max_tokens=max_tokens)
+        last_error: Optional[Exception] = None
+        for attempt in range(self.max_retries):
+            try:
+                if self.kind == "anthropic":
+                    return self._anthropic_generate(model, prompt_text, max_tokens=max_tokens)
+                return self._openai_compat_generate(model, prompt_text, max_tokens=max_tokens)
+            except Exception as e:
+                last_error = e
+                if attempt < self.max_retries - 1:
+                    time.sleep(self.retry_delay)
+                    continue
+        raise RuntimeError(f"Generate failed after {self.max_retries} retries: {last_error}")
 
     def _openai_compat_generate(self, model: str, prompt_text: str, max_tokens: int) -> str:
-        url = f"{self.base_url}/v1/chat/completions"
+        url = self.base_url
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
@@ -101,8 +113,8 @@ class ApiClient:
             raise RuntimeError(f"Bad response: {json.dumps(data)[:1000]}")
 
     def _anthropic_generate(self, model: str, prompt_text: str, max_tokens: int) -> str:
-        # Anthropic Messages API
-        url = f"{self.base_url}/v1/messages"
+        # Anthropic Messages API'
+        url = self.base_url
         headers = {
             "x-api-key": self.api_key,
             "anthropic-version": "2023-06-01",
