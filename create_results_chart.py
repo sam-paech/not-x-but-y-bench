@@ -119,7 +119,7 @@ def create_leaderboard(scores: list, output_path: Path) -> None:
         pad=10
     )
 
-    ax.set_xlabel('Hits per 1 000 Characters', fontsize=10)
+    ax.set_xlabel('Not-X-but-Y phrases per 1,000 Characters', fontsize=10)
     ax.set_ylabel('')
     ax.tick_params(axis='y', labelsize=9)
 

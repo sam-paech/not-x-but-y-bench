@@ -28,12 +28,11 @@ def sentence_spans(text: str) -> List[Tuple[int, int]]:
 try:
     from . import regexes_v3
     STAGE1_REGEXES: Dict[str, re.Pattern] = regexes_v3.compiled
-except Exception:
-    # Fallback simplified patterns
-    STAGE1_REGEXES = {
-        "RE_NOT_BUT": re.compile(r"\bnot\b(?:(?![.?!]).){1,160}?\bbut\b", re.I | re.S),
-        "RE_NT_BUT": re.compile(r"\b\w+n't\b(?:(?![.?!]).){1,160}?\bbut\b", re.I | re.S),
-    }
+    if len(STAGE1_REGEXES) != 10:
+        raise ValueError(f"Expected 10 Stage1 regexes, got {len(STAGE1_REGEXES)}")
+except Exception as e:
+    raise ImportError(f"Failed to load Stage1 regexes from regexes_v3: {e}. "
+                      "This is a critical error - scoring will be incorrect without proper regexes.")
 
 # --- Stage-2 regexes (POS) ---
 try:
@@ -76,19 +75,51 @@ try:
     }
     # Stage 2b: Lemma-based regexes
     STAGE2_REGEXES["LEMMA_SAME_VERB"] = regexes_pos.RE_LEMMA_SAME_VERB
-except Exception:
-    STAGE2_REGEXES = {}
+    if len(STAGE2_REGEXES) != 35:
+        raise ValueError(f"Expected 35 Stage2 regexes, got {len(STAGE2_REGEXES)}")
+except Exception as e:
+    raise ImportError(f"Failed to load Stage2 regexes from regexes_pos: {e}. "
+                      "This is a critical error - scoring will be incorrect without proper regexes.")
 
 # POS mapping with raw offsets
 try:
     from .pos_tagger import tag_stream_with_offsets
     HAS_POS = True
-except Exception:
-    HAS_POS = False
-    def tag_stream_with_offsets(text: str, pos_type: str = 'verb'):
-        return text, [(0, len(text), 0, len(text))]
+except Exception as e:
+    raise ImportError(f"Failed to load pos_tagger: {e}. "
+                      "This is a critical error - Stage2 POS regexes won't work without the tagger.")
 
 from bisect import bisect_left, bisect_right
+
+# Validation: Ensure all expected regexes are loaded
+def _validate_regexes():
+    """Validate that all expected regex patterns are loaded correctly."""
+    expected_stage1 = 10
+    expected_stage2 = 35
+
+    if len(STAGE1_REGEXES) != expected_stage1:
+        raise RuntimeError(
+            f"CRITICAL: Stage1 regex count mismatch. Expected {expected_stage1}, got {len(STAGE1_REGEXES)}. "
+            f"This will cause incorrect scoring results."
+        )
+
+    if len(STAGE2_REGEXES) != expected_stage2:
+        raise RuntimeError(
+            f"CRITICAL: Stage2 regex count mismatch. Expected {expected_stage2}, got {len(STAGE2_REGEXES)}. "
+            f"This will cause incorrect scoring results."
+        )
+
+    # Verify all patterns are actually compiled regex objects
+    for name, pattern in STAGE1_REGEXES.items():
+        if not hasattr(pattern, 'finditer'):
+            raise RuntimeError(f"CRITICAL: Stage1 pattern '{name}' is not a compiled regex")
+
+    for name, pattern in STAGE2_REGEXES.items():
+        if not hasattr(pattern, 'finditer'):
+            raise RuntimeError(f"CRITICAL: Stage2 pattern '{name}' is not a compiled regex")
+
+# Run validation on module import
+_validate_regexes()
 
 
 def _covered_sentence_range(spans: List[Tuple[int,int]], start: int, end: int):
@@ -142,39 +173,36 @@ def extract_contrast_matches_unique(text: str) -> List[Dict[str, str]]:
             })
 
     # Stage 2 on POS-tagged stream (map back to raw)
-    if STAGE2_REGEXES and HAS_POS:
-        try:
-            stream, pieces = tag_stream_with_offsets(t_norm, 'verb')
-            stream_starts = [p[0] for p in pieces]
-            stream_ends   = [p[1] for p in pieces]
+    if STAGE2_REGEXES:
+        stream, pieces = tag_stream_with_offsets(t_norm, 'verb')
+        stream_starts = [p[0] for p in pieces]
+        stream_ends   = [p[1] for p in pieces]
 
-            def _stream_to_raw(ss: int, se: int):
-                i = bisect_right(stream_ends, ss)
-                j = bisect_left(stream_starts, se) - 1
-                if i >= len(pieces) or j < i:
-                    return None
-                raw_s = min(p[2] for p in pieces[i:j+1])
-                raw_e = max(p[3] for p in pieces[i:j+1])
-                return raw_s, raw_e
+        def _stream_to_raw(ss: int, se: int):
+            i = bisect_right(stream_ends, ss)
+            j = bisect_left(stream_starts, se) - 1
+            if i >= len(pieces) or j < i:
+                return None
+            raw_s = min(p[2] for p in pieces[i:j+1])
+            raw_e = max(p[3] for p in pieces[i:j+1])
+            return raw_s, raw_e
 
-            for pname, pregex in STAGE2_REGEXES.items():
-                for m in pregex.finditer(stream):
-                    mapres = _stream_to_raw(m.start(), m.end())
-                    if not mapres:
-                        continue
-                    rs, re_ = mapres
-                    rng = _covered_sentence_range(spans, rs, re_)
-                    if rng is None:
-                        continue
-                    lo, hi = rng
-                    candidates.append({
-                        "lo": lo, "hi": hi,
-                        "raw_start": rs, "raw_end": re_,
-                        "pattern_name": f"S2_{pname}",
-                        "match_text": t_norm[rs:re_].strip(),
-                    })
-        except Exception:
-            pass
+        for pname, pregex in STAGE2_REGEXES.items():
+            for m in pregex.finditer(stream):
+                mapres = _stream_to_raw(m.start(), m.end())
+                if not mapres:
+                    continue
+                rs, re_ = mapres
+                rng = _covered_sentence_range(spans, rs, re_)
+                if rng is None:
+                    continue
+                lo, hi = rng
+                candidates.append({
+                    "lo": lo, "hi": hi,
+                    "raw_start": rs, "raw_end": re_,
+                    "pattern_name": f"S2_{pname}",
+                    "match_text": t_norm[rs:re_].strip(),
+                })
 
     merged = _merge_intervals(candidates)
 
