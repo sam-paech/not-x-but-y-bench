@@ -55,7 +55,7 @@ def create_leaderboard(scores: list, output_path: Path) -> None:
         output_path: Path where to save the chart image
     """
     # Add human baseline (computed from human_writing_samples/*.txt)
-    scores_with_human = scores + [("Human baseline", 0.151, np.nan, np.nan)]
+    scores_with_human = scores + [("Human baseline", 0.065, np.nan, np.nan)]
 
     df = (pd.DataFrame(scores_with_human, columns=["model", "rate", "hits", "chars"])
             .sort_values("rate", ascending=False)

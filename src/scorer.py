@@ -26,7 +26,7 @@ def sentence_spans(text: str) -> List[Tuple[int, int]]:
 
 # --- Stage-1 regexes (surface) ---
 try:
-    import regexes_v3
+    from . import regexes_v3
     STAGE1_REGEXES: Dict[str, re.Pattern] = regexes_v3.compiled
 except Exception:
     # Fallback simplified patterns
@@ -37,20 +37,51 @@ except Exception:
 
 # --- Stage-2 regexes (POS) ---
 try:
-    import regexes_pos
+    from . import regexes_pos
     STAGE2_REGEXES: Dict[str, re.Pattern] = {
         "POS_DOESNT_VERB": regexes_pos.RE_POS_DOESNT_VERB,
+        "POS_DONT_JUST_VERB": regexes_pos.RE_POS_DONT_JUST_VERB,
         "POS_GERUND_FRAGMENT": regexes_pos.RE_POS_GERUND_FRAGMENT,
+        "POS_NOT_ADJ": regexes_pos.RE_POS_NOT_ADJ,
+        "POS_DASH_VERB": regexes_pos.RE_POS_DASH_VERB,
+        "POS_NOT_JUST_VERB_PAST": regexes_pos.RE_POS_NOT_JUST_VERB_PAST,
+        "POS_COLON_VERB": regexes_pos.RE_POS_COLON_VERB,
+        "POS_ISNT_JUST_VERB": regexes_pos.RE_POS_ISNT_JUST_VERB,
+        "POS_QUOTE_MULTI_VERB": regexes_pos.RE_POS_QUOTE_MULTI_VERB,
+        "POS_ELLIPSIS_VERB": regexes_pos.RE_POS_ELLIPSIS_VERB,
+        "POS_NOT_NOUN": regexes_pos.RE_POS_NOT_NOUN,
+        "POS_DOESNT_VERB_EMPHASIS": regexes_pos.RE_POS_DOESNT_VERB_EMPHASIS,
+        "POS_DASH_VERB_BROAD": regexes_pos.RE_POS_DASH_VERB_BROAD,
+        "POS_ELLIPSIS_BROAD": regexes_pos.RE_POS_ELLIPSIS_BROAD,
+        "POS_NOT_BECAUSE": regexes_pos.RE_POS_NOT_BECAUSE,
+        "POS_GERUND_BROAD": regexes_pos.RE_POS_GERUND_BROAD,
+        "POS_QUOTE_VERBING": regexes_pos.RE_POS_QUOTE_VERBING,
+        "POS_DOESNT_LITERAL": regexes_pos.RE_POS_DOESNT_LITERAL,
+        "POS_DASH_NOUN_SWAP": regexes_pos.RE_POS_DASH_NOUN_SWAP,
+        "POS_ISNT_DASH_EMPHASIS": regexes_pos.RE_POS_ISNT_DASH_EMPHASIS,
+        "POS_THATS_NOT_NOUN": regexes_pos.RE_POS_THATS_NOT_NOUN,
+        "POS_GERUND_EMPHASIS": regexes_pos.RE_POS_GERUND_EMPHASIS,
+        "POS_QUOTE_ATTRIBUTION_VERB": regexes_pos.RE_POS_QUOTE_ATTRIBUTION_VERB,
+        "POS_ISNT_NOUN": regexes_pos.RE_POS_ISNT_NOUN,
+        "POS_ITS_NOT_JUST": regexes_pos.RE_POS_ITS_NOT_JUST,
+        "POS_DASH_GERUND_OBJ": regexes_pos.RE_POS_DASH_GERUND_OBJ,
+        "POS_ELLIPSIS_DIALOGUE": regexes_pos.RE_POS_ELLIPSIS_DIALOGUE,
+        "POS_SEMI_NOUN": regexes_pos.RE_POS_SEMI_NOUN,
+        "POS_ISNT_ADJ_NOUN": regexes_pos.RE_POS_ISNT_ADJ_NOUN,
         "POS_DIALOGUE_ATTR": regexes_pos.RE_POS_DIALOGUE_ATTR,
+        "POS_TO_VERB_ISNT": regexes_pos.RE_POS_TO_VERB_ISNT,
         "POS_I_AM_NOT_SEMI": regexes_pos.RE_POS_I_AM_NOT_SEMI,
         "POS_NOT_ANYMORE_ITS": regexes_pos.RE_POS_NOT_ANYMORE_ITS,
+        "POS_AINT_SIMPLE": regexes_pos.RE_POS_AINT_SIMPLE,
     }
+    # Stage 2b: Lemma-based regexes
+    STAGE2_REGEXES["LEMMA_SAME_VERB"] = regexes_pos.RE_LEMMA_SAME_VERB
 except Exception:
     STAGE2_REGEXES = {}
 
 # POS mapping with raw offsets
 try:
-    from pos_tagger import tag_stream_with_offsets
+    from .pos_tagger import tag_stream_with_offsets
     HAS_POS = True
 except Exception:
     HAS_POS = False
